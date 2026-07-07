@@ -1,0 +1,16 @@
+{
+  "name": "research-schedule-planner",
+  "version": "1.0.0",
+  "description": "研究スケジュール管理アプリ（年間・3ヶ月・月間ビュー、ローカル保存）",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "web": "node serve-web.js"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}

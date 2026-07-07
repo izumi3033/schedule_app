@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+<title>研究スケジュールプランナー</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <h1 class="brand">研究スケジュールプランナー</h1>
+
+    <div class="view-switch">
+      <button class="view-btn" data-view="year">年間</button>
+      <button class="view-btn" data-view="quarter">3ヶ月</button>
+      <button class="view-btn" data-view="month">月間</button>
+    </div>
+
+    <div class="nav-controls">
+      <button id="nav-prev" class="icon-btn" title="前へ">◀</button>
+      <div id="period-label" class="period-label">-</div>
+      <button id="nav-next" class="icon-btn" title="次へ">▶</button>
+      <button id="nav-today" class="today-btn">今日</button>
+    </div>
+
+    <button id="add-task-btn" class="primary-btn">＋ 新規予定</button>
+  </header>
+
+  <div class="body-layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span>予定一覧</span>
+        <input id="task-filter" type="text" placeholder="検索..." />
+        <button type="button" id="manage-labels-btn" class="secondary-btn">タグ管理</button>
+      </div>
+      <div id="task-list" class="task-list"></div>
+    </aside>
+
+    <main class="view-area">
+      <div id="view-year" class="view-panel"></div>
+      <div id="view-quarter" class="view-panel"></div>
+      <div id="view-month" class="view-panel"></div>
+    </main>
+  </div>
+</div>
+
+<div id="task-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">新規予定</h2>
+      <button id="modal-close" class="icon-btn">✕</button>
+    </div>
+    <form id="task-form">
+      <label>
+        タイトル
+        <input type="text" id="field-title" required maxlength="80" />
+      </label>
+
+      <label>
+        詳細メモ
+        <textarea id="field-description" rows="3" maxlength="500"></textarea>
+      </label>
+
+      <div class="field-row">
+        <label>
+          開始日
+          <input type="date" id="field-start" required />
+        </label>
+        <label>
+          終了日
+          <input type="date" id="field-end" required />
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label>
+          タグ
+          <select id="field-label"><option value="">(なし)</option></select>
+        </label>
+        <label>
+          色
+          <input type="color" id="field-color" value="#4f7cff" />
+        </label>
+      </div>
+
+      <label>
+        進捗: <span id="progress-value-label">0%</span>
+        <input type="range" id="field-progress" min="0" max="100" step="5" value="0" />
+      </label>
+
+      <label>
+        遅延度: <span id="delay-value-label">0%</span>
+        <input type="range" id="field-delay" min="0" max="100" step="5" value="0" title="年間・3ヶ月ビューの遅延表示（赤枠・⚠・赤い斜線）に反映されます" />
+      </label>
+
+      <div class="goals-section">
+        <div class="goals-header">スモールゴール</div>
+        <div id="goals-list" class="goals-list"></div>
+        <div class="goals-add-row">
+          <input type="text" id="new-goal-text" placeholder="小さな目標を追加..." maxlength="100" />
+          <input type="date" id="new-goal-date" title="達成予定日（月間ビューに表示されます）" />
+          <button type="button" id="add-goal-btn" class="secondary-btn">追加</button>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" id="delete-task-btn" class="danger-btn hidden">削除</button>
+        <div class="modal-actions-right">
+          <button type="button" id="cancel-task-btn" class="secondary-btn">キャンセル</button>
+          <button type="submit" class="primary-btn">保存</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="label-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>タグ管理</h2>
+      <button id="label-modal-close" class="icon-btn">✕</button>
+    </div>
+    <div id="label-list" class="label-list"></div>
+    <form id="label-add-form" class="label-add-form">
+      <input type="text" id="new-label-name" placeholder="新しいタグ名" maxlength="40" required />
+      <input type="color" id="new-label-color" value="#4f7cff" />
+      <label class="label-hide-month-field">
+        <input type="checkbox" id="new-label-hide-month" />
+        月表示に含めない（年間スケジュール用）
+      </label>
+      <button type="submit" class="primary-btn">追加</button>
+    </form>
+  </div>
+</div>
+
+<script src="web-shim.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
