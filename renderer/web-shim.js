@@ -19,5 +19,17 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       return true;
     },
+    async gcalStatus() {
+      return { hasCredentials: false, connected: false, unsupported: true };
+    },
+    async gcalConnect() {
+      return { ok: false, error: 'Web版ではGoogle連携は使えません（Electron版をご利用ください）' };
+    },
+    async gcalDisconnect() {
+      return true;
+    },
+    async gcalEvents() {
+      return { ok: true, events: [] };
+    },
   };
 })();

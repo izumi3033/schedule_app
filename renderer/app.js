@@ -7,6 +7,7 @@
     editingId: null,
     filterText: '',
     draftGoals: [],
+    gcal: { connected: false, monthKey: '', events: [], loading: false, error: '' },
   };
 
   const LABEL_PALETTE = ['#4f7cff', '#22a55a', '#e5484d', '#f5a623', '#8b5cf6', '#06b6d4', '#ec4899'];
@@ -559,6 +560,44 @@
   }
 
   // ---------- Rendering: month calendar ----------
+  // ---------- Googleカレンダー（読み取り専用） ----------
+  async function fetchGcalMonth() {
+    if (!state.gcal.connected || state.gcal.loading) return;
+    const anchor = state.anchors.month;
+    const key = `${anchor.getFullYear()}-${anchor.getMonth()}`;
+    if (state.gcal.monthKey === key) return;
+    state.gcal.loading = true;
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const gridStart = new Date(first.getFullYear(), first.getMonth(), 1 - first.getDay());
+    const gridEnd = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + 42);
+    const res = await window.scheduleAPI.gcalEvents(gridStart.toISOString(), gridEnd.toISOString());
+    state.gcal.loading = false;
+    state.gcal.monthKey = key;
+    if (res.ok) {
+      state.gcal.error = '';
+      state.gcal.events = res.events.map((ev) => {
+        if (ev.allDay) return ev;
+        const d = new Date(ev.start);
+        return {
+          ...ev,
+          dateKey: formatDate(d),
+          timeLabel: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+        };
+      });
+    } else {
+      state.gcal.error = res.error || '';
+      state.gcal.events = [];
+    }
+    if (state.view === 'month') renderMonthView();
+  }
+
+  function gcalEventsOn(dateStr) {
+    return state.gcal.events.filter((ev) => {
+      if (ev.allDay) return ev.start <= dateStr && dateStr < ev.end;
+      return ev.dateKey === dateStr;
+    });
+  }
+
   function startInlineMonthAdd(cellEl) {
     const existing = cellEl.querySelector('.month-inline-input');
     if (existing) { existing.focus(); return; }
@@ -631,6 +670,10 @@
         <div class="month-chip${isDelayed(t) ? ' delayed' : ''}" data-id="${t.id}" style="background:${t.color}" title="${escapeHtml(t.title)}（進捗 ${t.progress}%）">${escapeHtml(t.title)}</div>
       `).join('');
 
+      const gcalChips = gcalEventsOn(cellDateStr).map((ev) => `
+        <div class="month-gcal-chip" title="Googleカレンダー: ${escapeHtml(ev.title)}">${ev.timeLabel ? ev.timeLabel + ' ' : ''}${escapeHtml(ev.title)}</div>
+      `).join('');
+
       const goalChips = dayGoals.map((g) => `
         <div class="month-goal-chip${g.done ? ' done' : ''}" data-task-id="${g.taskId}" data-goal-id="${g.goalId}" style="border-color:${g.color}" title="スモールゴール: ${escapeHtml(g.text)}${g.done ? ' - 完了' : ''}">◆ ${escapeHtml(g.text)}</div>
       `).join('');
@@ -638,6 +681,7 @@
       cellsHtml += `
         <div class="month-cell ${outside ? 'outside' : ''} ${isToday ? 'today' : ''}" data-date="${cellDateStr}">
           <div class="month-cell-date">${cellDate.getDate()}</div>
+          ${gcalChips}
           ${taskChips}
           ${goalChips}
         </div>`;
@@ -673,6 +717,11 @@
         renderAll();
       });
     });
+    container.querySelectorAll('.month-gcal-chip').forEach((el) => {
+      el.addEventListener('click', (e) => e.stopPropagation());
+    });
+
+    fetchGcalMonth();
   }
 
   // ---------- Navigation ----------
@@ -784,7 +833,9 @@
     });
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
-      if (!document.getElementById('label-modal').classList.contains('hidden')) {
+      if (!document.getElementById('gcal-modal').classList.contains('hidden')) {
+        document.getElementById('gcal-modal').classList.add('hidden');
+      } else if (!document.getElementById('label-modal').classList.contains('hidden')) {
         document.getElementById('label-modal').classList.add('hidden');
       } else if (!document.getElementById('task-modal').classList.contains('hidden')) {
         closeModal();
@@ -827,6 +878,57 @@
         e.preventDefault();
         document.getElementById('add-goal-btn').click();
       }
+    });
+
+    // ---- Google連携モーダル ----
+    async function refreshGcalModal() {
+      const st = await window.scheduleAPI.gcalStatus();
+      state.gcal.connected = st.connected;
+      document.getElementById('gcal-status').textContent = st.connected
+        ? '連携中: Googleカレンダーの予定を月間ビューに表示しています'
+        : (st.unsupported ? 'Web版では利用できません（Electron版をご利用ください）' : '未連携');
+      document.getElementById('gcal-setup').classList.toggle('hidden', st.connected || !!st.unsupported);
+      document.getElementById('gcal-disconnect-btn').classList.toggle('hidden', !st.connected);
+      document.getElementById('gcal-connect-btn').classList.toggle('hidden', st.connected || !!st.unsupported);
+    }
+    document.getElementById('gcal-btn').addEventListener('click', async () => {
+      document.getElementById('gcal-error').classList.add('hidden');
+      await refreshGcalModal();
+      document.getElementById('gcal-modal').classList.remove('hidden');
+    });
+    document.getElementById('gcal-modal-close').addEventListener('click', () => {
+      document.getElementById('gcal-modal').classList.add('hidden');
+    });
+    document.getElementById('gcal-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'gcal-modal') document.getElementById('gcal-modal').classList.add('hidden');
+    });
+    document.getElementById('gcal-console-link').addEventListener('click', (e) => {
+      e.preventDefault();
+      window.open('https://console.cloud.google.com/apis/credentials');
+    });
+    document.getElementById('gcal-connect-btn').addEventListener('click', async () => {
+      const errEl = document.getElementById('gcal-error');
+      errEl.classList.add('hidden');
+      document.getElementById('gcal-status').textContent = 'ブラウザが開きます。Googleアカウントでログインして許可してください…';
+      const res = await window.scheduleAPI.gcalConnect(
+        document.getElementById('gcal-client-id').value,
+        document.getElementById('gcal-client-secret').value
+      );
+      if (res.ok) {
+        state.gcal.monthKey = '';
+        await refreshGcalModal();
+        renderAll();
+      } else {
+        await refreshGcalModal();
+        errEl.textContent = res.error || '接続に失敗しました';
+        errEl.classList.remove('hidden');
+      }
+    });
+    document.getElementById('gcal-disconnect-btn').addEventListener('click', async () => {
+      await window.scheduleAPI.gcalDisconnect();
+      state.gcal = { connected: false, monthKey: '', events: [], loading: false, error: '' };
+      await refreshGcalModal();
+      renderAll();
     });
 
     document.getElementById('manage-labels-btn').addEventListener('click', () => {
@@ -906,6 +1008,10 @@
     const today = toDateOnly(new Date());
     state.anchors = { year: today, quarter: today, month: today };
     setupEventListeners();
+    try {
+      const st = await window.scheduleAPI.gcalStatus();
+      state.gcal.connected = !!st.connected;
+    } catch {}
     renderAll();
   }
 

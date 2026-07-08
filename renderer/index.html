@@ -33,6 +33,7 @@
         <span>予定一覧</span>
         <input id="task-filter" type="text" placeholder="検索..." />
         <button type="button" id="manage-labels-btn" class="secondary-btn">タグ管理</button>
+        <button type="button" id="gcal-btn" class="secondary-btn">Googleカレンダー連携</button>
       </div>
       <div id="task-list" class="task-list"></div>
     </aside>
@@ -139,6 +140,38 @@
       </label>
       <button type="submit" class="primary-btn">追加</button>
     </form>
+  </div>
+</div>
+
+<div id="gcal-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Googleカレンダー連携</h2>
+      <button id="gcal-modal-close" class="icon-btn">✕</button>
+    </div>
+    <div id="gcal-status" class="gcal-status">未連携</div>
+    <div id="gcal-setup">
+      <p class="gcal-help">
+        Googleカレンダーの予定を月間ビューに表示します（読み取り専用。アプリからGoogle側は変更しません）。<br />
+        利用には <a id="gcal-console-link" href="#">Google Cloud Console</a> で Calendar API を有効化し、
+        OAuthクライアントID（アプリの種類:「デスクトップアプリ」）を作成して、下に入力してください。
+      </p>
+      <label class="gcal-field">
+        クライアントID
+        <input type="text" id="gcal-client-id" placeholder="xxxx.apps.googleusercontent.com" />
+      </label>
+      <label class="gcal-field">
+        クライアントシークレット
+        <input type="password" id="gcal-client-secret" />
+      </label>
+    </div>
+    <div id="gcal-error" class="gcal-error hidden"></div>
+    <div class="modal-actions">
+      <button type="button" id="gcal-disconnect-btn" class="danger-btn hidden">連携を解除</button>
+      <div class="modal-actions-right">
+        <button type="button" id="gcal-connect-btn" class="primary-btn">Googleでログイン</button>
+      </div>
+    </div>
   </div>
 </div>
 
