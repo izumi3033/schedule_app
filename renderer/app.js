@@ -86,8 +86,7 @@
     return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   }
   function isDelayed(t) {
-    const today = toDateOnly(new Date());
-    return parseDate(t.end) < today && t.progress < 100;
+    return (t.delay || 0) > 0;
   }
   function monthLabel(d) {
     return `${d.getFullYear()}年${d.getMonth() + 1}月`;
@@ -115,6 +114,8 @@
       return {
         ...rest,
         label: t.label !== undefined ? t.label : (category || ''),
+        delay: t.delay || 0,
+        scope: t.scope === 'month' ? 'month' : 'main',
         goals: t.goals || [],
       };
     });
@@ -181,6 +182,7 @@
 
   function tasksIntersecting(rangeStart, rangeEnd) {
     return state.tasks.filter((t) => {
+      if (t.scope === 'month') return false;
       const s = parseDate(t.start), e = parseDate(t.end);
       return e >= rangeStart && s <= rangeEnd;
     });
@@ -212,11 +214,22 @@
     container.innerHTML = '';
     if (list.length === 0) {
       container.innerHTML = '<div class="empty-msg">予定がありません</div>';
-    } else {
-      for (const t of list) {
+      return;
+    }
+    const groups = [
+      { title: '年間・3ヶ月', items: list.filter((t) => t.scope !== 'month') },
+      { title: '月間', items: list.filter((t) => t.scope === 'month') },
+    ];
+    for (const g of groups) {
+      if (g.items.length === 0) continue;
+      const header = document.createElement('div');
+      header.className = 'task-list-section';
+      header.textContent = g.title;
+      container.appendChild(header);
+      for (const t of g.items) {
         const delayed = isDelayed(t);
         const goals = t.goals || [];
-        const doneGoals = goals.filter((g) => g.done).length;
+        const doneGoals = goals.filter((g2) => g2.done).length;
         const card = document.createElement('div');
         card.className = 'task-card' + (delayed ? ' delayed' : '');
         card.innerHTML = `
@@ -421,12 +434,12 @@
       const widthPct = ((daysBetween(r.start, r.end) + 1) / totalDays) * 100;
       const t = r.task;
       const delayed = isDelayed(t);
-      const remainingPct = 100 - t.progress;
-      const overdueOverlay = delayed && remainingPct > 0
-        ? `<div class="gantt-bar-overdue" style="left:${t.progress}%; width:${remainingPct}%"></div>`
+      const delayDegree = t.delay || 0;
+      const overdueOverlay = delayed
+        ? `<div class="gantt-bar-overdue" style="left:0%; width:${delayDegree}%"></div>`
         : '';
       return `
-        <div class="gantt-bar${delayed ? ' delayed' : ''}" data-id="${t.id}" style="left:${leftPct}%; width:${widthPct}%; top:${r.lane * 34 + 4}px; border-color:${delayed ? '#e5484d' : t.color}; background:${hexToRgba(t.color, 0.15)}" title="${escapeHtml(t.title)}（進捗 ${t.progress}%）${delayed ? ' - 遅延' : ''}">
+        <div class="gantt-bar${delayed ? ' delayed' : ''}" data-id="${t.id}" style="left:${leftPct}%; width:${widthPct}%; top:${r.lane * 34 + 4}px; border-color:${t.color}; background:${hexToRgba(t.color, 0.15)}" title="${escapeHtml(t.title)}（進捗 ${t.progress}%）${delayed ? ` - 遅延度 ${delayDegree}%` : ''}">
           <div class="gantt-bar-fill" style="width:${t.progress}%; background:${hexToRgba(t.color, 0.45)}"></div>
           ${overdueOverlay}
         </div>`;
@@ -486,10 +499,17 @@
     });
   }
 
-  function getYearMonthUnits(year) {
+  function getFiscalYearStart(anchorDate) {
+    const y = anchorDate.getFullYear();
+    return anchorDate.getMonth() >= 3 ? y : y - 1;
+  }
+
+  function getYearMonthUnits(fiscalStartYear) {
     const units = [];
-    for (let m = 0; m < 12; m++) {
-      units.push({ label: `${m + 1}月`, start: new Date(year, m, 1), end: new Date(year, m + 1, 0) });
+    for (let i = 0; i < 12; i++) {
+      const m = (3 + i) % 12;
+      const y = fiscalStartYear + (3 + i >= 12 ? 1 : 0);
+      units.push({ label: `${m + 1}月`, start: new Date(y, m, 1), end: new Date(y, m + 1, 0) });
     }
     return units;
   }
@@ -525,10 +545,10 @@
   }
 
   function renderYearView() {
-    const year = state.anchors.year.getFullYear();
-    const rangeStart = new Date(year, 0, 1);
-    const rangeEnd = new Date(year, 11, 31);
-    renderGantt(document.getElementById('view-year'), rangeStart, rangeEnd, getYearMonthUnits(year));
+    const fiscalStartYear = getFiscalYearStart(state.anchors.year);
+    const rangeStart = new Date(fiscalStartYear, 3, 1);
+    const rangeEnd = new Date(fiscalStartYear + 1, 2, 31);
+    renderGantt(document.getElementById('view-year'), rangeStart, rangeEnd, getYearMonthUnits(fiscalStartYear));
   }
 
   function renderQuarterView() {
@@ -539,6 +559,45 @@
   }
 
   // ---------- Rendering: month calendar ----------
+  function startInlineMonthAdd(cellEl) {
+    const existing = cellEl.querySelector('.month-inline-input');
+    if (existing) { existing.focus(); return; }
+    const date = cellEl.dataset.date;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'month-inline-input';
+    input.placeholder = '予定を入力';
+    input.maxLength = 80;
+    let done = false;
+    const commit = async () => {
+      if (done) return;
+      const text = input.value.trim();
+      if (!text) { cancel(); return; }
+      done = true;
+      pushUndo();
+      state.tasks.push({
+        id: crypto.randomUUID(),
+        title: text, description: '', start: date, end: date,
+        label: '', color: '#4f7cff', progress: 0, delay: 0, scope: 'month', goals: [],
+      });
+      await persist();
+      renderAll();
+    };
+    const cancel = () => {
+      if (done) return;
+      done = true;
+      input.remove();
+    };
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
+    });
+    input.addEventListener('blur', () => commit());
+    cellEl.appendChild(input);
+    input.focus();
+  }
+
   function renderMonthView() {
     const container = document.getElementById('view-month');
     const anchor = state.anchors.month;
@@ -561,18 +620,25 @@
       const cellDateStr = formatDate(cellDate);
       const dayGoals = [];
       for (const t of state.tasks) {
+        if (isLabelHiddenInMonth(t.label)) continue;
         for (const g of t.goals || []) {
           if (g.date === cellDateStr) dayGoals.push({ ...g, color: t.color, taskId: t.id, goalId: g.id });
         }
       }
+      const dayTasks = state.tasks.filter((t) => t.scope === 'month' && parseDate(t.start) <= cellDate && cellDate <= parseDate(t.end));
+
+      const taskChips = dayTasks.map((t) => `
+        <div class="month-chip${isDelayed(t) ? ' delayed' : ''}" data-id="${t.id}" style="background:${t.color}" title="${escapeHtml(t.title)}（進捗 ${t.progress}%）">${escapeHtml(t.title)}</div>
+      `).join('');
 
       const goalChips = dayGoals.map((g) => `
         <div class="month-goal-chip${g.done ? ' done' : ''}" data-task-id="${g.taskId}" data-goal-id="${g.goalId}" style="border-color:${g.color}" title="スモールゴール: ${escapeHtml(g.text)}${g.done ? ' - 完了' : ''}">◆ ${escapeHtml(g.text)}</div>
       `).join('');
 
       cellsHtml += `
-        <div class="month-cell ${outside ? 'outside' : ''} ${isToday ? 'today' : ''}">
+        <div class="month-cell ${outside ? 'outside' : ''} ${isToday ? 'today' : ''}" data-date="${cellDateStr}">
           <div class="month-cell-date">${cellDate.getDate()}</div>
+          ${taskChips}
           ${goalChips}
         </div>`;
     }
@@ -584,8 +650,18 @@
       </div>
     `;
 
+    container.querySelectorAll('.month-cell').forEach((el) => {
+      el.addEventListener('click', () => startInlineMonthAdd(el));
+    });
+    container.querySelectorAll('.month-chip[data-id]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openModal(el.dataset.id);
+      });
+    });
     container.querySelectorAll('.month-goal-chip[data-goal-id]').forEach((el) => {
       el.addEventListener('click', async (e) => {
+        e.stopPropagation();
         const taskId = el.dataset.taskId;
         const goalId = el.dataset.goalId;
         const task = state.tasks.find((t) => t.id === taskId);
@@ -603,7 +679,7 @@
   function updatePeriodLabel() {
     const label = document.getElementById('period-label');
     if (state.view === 'year') {
-      label.textContent = `${state.anchors.year.getFullYear()}年`;
+      label.textContent = `${getFiscalYearStart(state.anchors.year)}年度`;
     } else if (state.view === 'quarter') {
       const units = getQuarterMonthUnits(state.anchors.quarter);
       label.textContent = `${units[0].label} 〜 ${units[2].label}`;
@@ -631,7 +707,7 @@
   }
 
   // ---------- Modal ----------
-  function openModal(id) {
+  function openModal(id, prefillDate) {
     state.editingId = id || null;
     const modal = document.getElementById('task-modal');
     const title = document.getElementById('modal-title');
@@ -650,18 +726,24 @@
       document.getElementById('field-color').value = t.color;
       document.getElementById('field-progress').value = t.progress;
       document.getElementById('progress-value-label').textContent = t.progress + '%';
+      document.getElementById('field-delay').value = t.delay || 0;
+      document.getElementById('delay-value-label').textContent = (t.delay || 0) + '%';
+      document.getElementById('field-scope').value = t.scope === 'month' ? 'month' : 'main';
       state.draftGoals = (t.goals || []).map((g) => ({ ...g }));
       deleteBtn.classList.remove('hidden');
     } else {
       title.textContent = '新規予定';
       document.getElementById('task-form').reset();
-      const d = formatDate(currentAnchor());
+      const d = prefillDate || formatDate(currentAnchor());
       document.getElementById('field-start').value = d;
       document.getElementById('field-end').value = d;
       document.getElementById('field-label').value = '';
       document.getElementById('field-color').value = '#4f7cff';
+      document.getElementById('field-scope').value = (prefillDate || state.view === 'month') ? 'month' : 'main';
       document.getElementById('field-progress').value = 0;
       document.getElementById('progress-value-label').textContent = '0%';
+      document.getElementById('field-delay').value = 0;
+      document.getElementById('delay-value-label').textContent = '0%';
       state.draftGoals = [];
       deleteBtn.classList.add('hidden');
     }
@@ -719,6 +801,10 @@
 
     document.getElementById('field-progress').addEventListener('input', (e) => {
       document.getElementById('progress-value-label').textContent = e.target.value + '%';
+    });
+
+    document.getElementById('field-delay').addEventListener('input', (e) => {
+      document.getElementById('delay-value-label').textContent = e.target.value + '%';
     });
 
     document.getElementById('task-filter').addEventListener('input', (e) => {
@@ -782,6 +868,8 @@
       const label = document.getElementById('field-label').value;
       const color = document.getElementById('field-color').value;
       const progress = Number(document.getElementById('field-progress').value);
+      const delay = Number(document.getElementById('field-delay').value);
+      const scope = document.getElementById('field-scope').value === 'month' ? 'month' : 'main';
       const goals = state.draftGoals.slice();
 
       if (!titleVal || !start || !end) return;
@@ -790,11 +878,11 @@
       pushUndo();
       if (state.editingId) {
         const t = state.tasks.find((x) => x.id === state.editingId);
-        Object.assign(t, { title: titleVal, description, start, end, label, color, progress, goals });
+        Object.assign(t, { title: titleVal, description, start, end, label, color, progress, delay, scope, goals });
       } else {
         state.tasks.push({
           id: crypto.randomUUID(),
-          title: titleVal, description, start, end, label, color, progress, goals,
+          title: titleVal, description, start, end, label, color, progress, delay, scope, goals,
         });
       }
       await persist();
